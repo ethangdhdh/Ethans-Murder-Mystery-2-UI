@@ -1,0 +1,1579 @@
+-- ETHAN UI (with key system)
+-- Roblox Studio / your own game
+-- Single LocalScript
+-- Mobile friendly
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local GuiService = game:GetService("GuiService")
+local Lighting = game:GetService("Lighting")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+--==================================================
+-- KEY SYSTEM SETTINGS
+-- These must match the Key Vault page (SALT and alphabet)
+--==================================================
+
+-- Background image for the UI. Upload an image to Roblox, then paste its
+-- asset id here like "rbxassetid://123456789". Leave empty for no image.
+local BACKGROUND_IMAGE = ""
+local BACKGROUND_TRANSPARENCY = 0.4 -- 0 = full image, 1 = hidden
+
+-- UI size. 1 = normal, smaller = smaller UI. Phones/tablets default to 0.7.
+local UI_SCALE = UserInputService.TouchEnabled and 0.7 or 1
+
+local KEY_URL = "https://exquisite-shortbread-716c4f.netlify.app"
+local SALT = "ethan-ui-v1"
+local ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+--==================================================
+-- SETTINGS
+--==================================================
+
+local ESP_ENABLED = false
+local AIM_ENABLED = false
+local LOCK_ENABLED = false
+local FLY_ENABLED = false
+
+local FLY_SPEED = 55
+local ACCURACY = 75
+local LOCK_PERCENT = 75
+
+local verticalDirection = 0
+local selectedPlayer = nil
+local selectedIndex = 0
+
+local sheriffDeathCFrame = nil
+local savedPosition = nil
+
+local highlights = {}
+local sheriffConnections = {}
+
+local collapsed = false
+local currentTab = "MAIN"
+
+--==================================================
+-- REMOVE OLD UI
+--==================================================
+
+local oldGui = playerGui:FindFirstChild("Ethan")
+
+if oldGui then
+	oldGui:Destroy()
+end
+
+--==================================================
+-- GUI
+--==================================================
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "Ethan"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.DisplayOrder = 100
+gui.Parent = playerGui
+
+local window = Instance.new("Frame")
+window.Name = "Window"
+window.Size = UDim2.fromOffset(310, 420)
+window.Position = UDim2.new(0, 10, 0.5, -math.floor(420 * UI_SCALE / 2))
+window.BackgroundColor3 = Color3.fromRGB(22, 22, 27)
+window.BorderSizePixel = 0
+window.Visible = false -- hidden until a valid key is entered
+window.Parent = gui
+
+local windowScale = Instance.new("UIScale")
+windowScale.Scale = UI_SCALE
+windowScale.Parent = window
+
+local windowCorner = Instance.new("UICorner")
+windowCorner.CornerRadius = UDim.new(0, 10)
+windowCorner.Parent = window
+
+local windowStroke = Instance.new("UIStroke")
+windowStroke.Color = Color3.fromRGB(65, 65, 75)
+windowStroke.Thickness = 1
+windowStroke.Parent = window
+
+local function makeBackground(parent)
+	local image = Instance.new("ImageLabel")
+	image.Name = "Background"
+	image.Size = UDim2.fromScale(1, 1)
+	image.BackgroundTransparency = 1
+	image.BorderSizePixel = 0
+	image.Image = BACKGROUND_IMAGE
+	image.ImageTransparency = BACKGROUND_TRANSPARENCY
+	image.ScaleType = Enum.ScaleType.Crop
+	image.ZIndex = 0
+	image.Parent = parent
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 10)
+	corner.Parent = image
+
+	return image
+end
+
+if BACKGROUND_IMAGE ~= "" then
+	makeBackground(window)
+end
+
+--==================================================
+-- TITLE
+--==================================================
+
+local title = Instance.new("TextButton")
+title.Name = "Title"
+title.Size = UDim2.new(1, 0, 0, 42)
+title.BackgroundColor3 = Color3.fromRGB(30, 30, 37)
+title.TextColor3 = Color3.new(1, 1, 1)
+title.Text = "ETHAN −"
+title.Font = Enum.Font.GothamBold
+title.TextSize = 18
+title.BorderSizePixel = 0
+title.AutoButtonColor = false
+title.Parent = window
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 10)
+titleCorner.Parent = title
+
+--==================================================
+-- SIDEBAR
+--==================================================
+
+local sidebar = Instance.new("Frame")
+sidebar.Name = "Sidebar"
+sidebar.Size = UDim2.fromOffset(82, 378)
+sidebar.Position = UDim2.fromOffset(0, 42)
+sidebar.BackgroundColor3 = Color3.fromRGB(27, 27, 33)
+sidebar.BorderSizePixel = 0
+sidebar.Parent = window
+
+local sideLayout = Instance.new("UIListLayout")
+sideLayout.Padding = UDim.new(0, 7)
+sideLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+sideLayout.Parent = sidebar
+
+local sidePadding = Instance.new("UIPadding")
+sidePadding.PaddingTop = UDim.new(0, 8)
+sidePadding.PaddingLeft = UDim.new(0, 7)
+sidePadding.PaddingRight = UDim.new(0, 7)
+sidePadding.Parent = sidebar
+
+--==================================================
+-- HELPERS
+--==================================================
+
+local function makeButton(parent, text, height)
+	local button = Instance.new("TextButton")
+
+	button.Size = UDim2.new(1, 0, 0, height or 40)
+	button.BackgroundColor3 = Color3.fromRGB(37, 37, 45)
+	button.TextColor3 = Color3.new(1, 1, 1)
+	button.Text = text
+	button.Font = Enum.Font.GothamBold
+	button.TextSize = 13
+	button.BorderSizePixel = 0
+	button.AutoButtonColor = true
+	button.Parent = parent
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 7)
+	corner.Parent = button
+
+	return button
+end
+
+local panels = {}
+
+local function createPanel(name)
+	local panel = Instance.new("ScrollingFrame")
+
+	panel.Name = name
+	panel.Size = UDim2.new(1, -92, 1, -52)
+	panel.Position = UDim2.fromOffset(88, 48)
+	panel.BackgroundTransparency = 1
+	panel.BorderSizePixel = 0
+	panel.ScrollBarThickness = 4
+	panel.ScrollingDirection = Enum.ScrollingDirection.Y
+	panel.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	panel.CanvasSize = UDim2.new()
+	panel.Visible = false
+	panel.Parent = window
+
+	local layout = Instance.new("UIListLayout")
+	layout.Padding = UDim.new(0, 7)
+	layout.Parent = panel
+
+	local padding = Instance.new("UIPadding")
+	padding.PaddingTop = UDim.new(0, 4)
+	padding.PaddingBottom = UDim.new(0, 10)
+	padding.PaddingLeft = UDim.new(0, 3)
+	padding.PaddingRight = UDim.new(0, 5)
+	padding.Parent = panel
+
+	panels[name] = panel
+
+	return panel
+end
+
+--==================================================
+-- PANELS
+--==================================================
+
+local mainPanel = createPanel("MAIN")
+local tpPanel = createPanel("TP")
+local flyPanel = createPanel("FLY")
+
+--==================================================
+-- TABS
+--==================================================
+
+local mainTab = makeButton(sidebar, "MAIN", 42)
+local tpTab = makeButton(sidebar, "TP", 42)
+local flyTab = makeButton(sidebar, "FLY", 42)
+
+local function showTab(tabName)
+	currentTab = tabName
+
+	for name, panel in pairs(panels) do
+		panel.Visible = (name == tabName)
+	end
+end
+
+mainTab.Activated:Connect(function()
+	showTab("MAIN")
+end)
+
+tpTab.Activated:Connect(function()
+	showTab("TP")
+end)
+
+flyTab.Activated:Connect(function()
+	showTab("FLY")
+end)
+
+showTab("MAIN")
+
+--==================================================
+-- MAIN PANEL
+--==================================================
+
+local selectPlayerButton = makeButton(mainPanel, "SELECT PLAYER", 40)
+local teleportButton = makeButton(mainPanel, "TELEPORT TO PLAYER", 40)
+
+local espButton = makeButton(mainPanel, "ESP: OFF", 40)
+local aimButton = makeButton(mainPanel, "AIM ASSIST: OFF", 40)
+local lockButton = makeButton(mainPanel, "LOCK ON: OFF", 40)
+
+local accuracyButton = makeButton(mainPanel, "ACCURACY: 75%", 40)
+local lockPercentButton = makeButton(mainPanel, "LOCK: 75%", 40)
+
+--==================================================
+-- PLAYER SELECTION
+--==================================================
+
+local function getOtherPlayers()
+	local result = {}
+
+	for _, target in ipairs(Players:GetPlayers()) do
+		if target ~= player then
+			table.insert(result, target)
+		end
+	end
+
+	return result
+end
+
+local function refreshPlayerSelection()
+	local list = getOtherPlayers()
+
+	if #list == 0 then
+		selectedPlayer = nil
+		selectedIndex = 0
+		selectPlayerButton.Text = "NO OTHER PLAYERS"
+		return
+	end
+
+	if selectedIndex < 1 or selectedIndex > #list then
+		selectedIndex = 1
+	end
+
+	selectedPlayer = list[selectedIndex]
+	selectPlayerButton.Text = "PLAYER: " .. selectedPlayer.Name
+end
+
+selectPlayerButton.Activated:Connect(function()
+	local list = getOtherPlayers()
+
+	if #list == 0 then
+		selectPlayerButton.Text = "NO OTHER PLAYERS"
+		return
+	end
+
+	selectedIndex += 1
+
+	if selectedIndex > #list then
+		selectedIndex = 1
+	end
+
+	refreshPlayerSelection()
+end)
+
+Players.PlayerAdded:Connect(function()
+	task.wait()
+	refreshPlayerSelection()
+end)
+
+Players.PlayerRemoving:Connect(function(target)
+	if selectedPlayer == target then
+		selectedPlayer = nil
+	end
+
+	task.wait()
+	refreshPlayerSelection()
+end)
+
+refreshPlayerSelection()
+
+--==================================================
+-- TELEPORT TO SELECTED PLAYER
+--==================================================
+
+teleportButton.Activated:Connect(function()
+	if not selectedPlayer then
+		return
+	end
+
+	local targetCharacter = selectedPlayer.Character
+	local targetRoot = targetCharacter
+		and targetCharacter:FindFirstChild("HumanoidRootPart")
+
+	local myCharacter = player.Character
+	local myRoot = myCharacter
+		and myCharacter:FindFirstChild("HumanoidRootPart")
+
+	if targetRoot and myRoot then
+		myRoot.CFrame = targetRoot.CFrame + Vector3.new(0, 3, 0)
+	end
+end)
+
+--==================================================
+-- ESP
+--==================================================
+
+local function removeHighlight(target)
+	local highlight = highlights[target]
+
+	if highlight then
+		highlight:Destroy()
+		highlights[target] = nil
+	end
+end
+
+local function updateHighlight(target)
+	if target == player or not ESP_ENABLED then
+		removeHighlight(target)
+		return
+	end
+
+	local character = target.Character
+
+	if not character then
+		removeHighlight(target)
+		return
+	end
+
+	local highlight = highlights[target]
+
+	if not highlight then
+		highlight = Instance.new("Highlight")
+		highlight.Name = "EthanESP"
+		highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+		highlight.FillTransparency = 0.15
+		highlight.OutlineTransparency = 0
+
+		highlights[target] = highlight
+	end
+
+	highlight.FillColor = Color3.fromRGB(255, 255, 0)
+	highlight.OutlineColor = Color3.fromRGB(255, 255, 0)
+	highlight.Parent = character
+end
+
+local function updateAllHighlights()
+	for _, target in ipairs(Players:GetPlayers()) do
+		if target ~= player then
+			updateHighlight(target)
+		end
+	end
+end
+
+espButton.Activated:Connect(function()
+	ESP_ENABLED = not ESP_ENABLED
+
+	espButton.Text = "ESP: " .. (ESP_ENABLED and "ON" or "OFF")
+
+	if ESP_ENABLED then
+		updateAllHighlights()
+	else
+		for target in pairs(highlights) do
+			removeHighlight(target)
+		end
+	end
+end)
+
+task.spawn(function()
+	while gui.Parent do
+		if ESP_ENABLED then
+			updateAllHighlights()
+		end
+
+		task.wait(0.25)
+	end
+end)
+
+--==================================================
+-- AIM / LOCK TARGET
+--==================================================
+
+local function getTargetPart()
+	if not selectedPlayer then
+		return nil
+	end
+
+	local character = selectedPlayer.Character
+
+	if not character then
+		return nil
+	end
+
+	return character:FindFirstChild("Head")
+		or character:FindFirstChild("HumanoidRootPart")
+end
+
+RunService.RenderStepped:Connect(function()
+	local camera = workspace.CurrentCamera
+	local targetPart = getTargetPart()
+
+	if not camera or not targetPart then
+		return
+	end
+
+	if AIM_ENABLED and math.random(1, 100) <= ACCURACY then
+		camera.CFrame = CFrame.lookAt(
+			camera.CFrame.Position,
+			targetPart.Position
+		)
+	end
+
+	if LOCK_ENABLED and math.random(1, 100) <= LOCK_PERCENT then
+		camera.CFrame = CFrame.lookAt(
+			camera.CFrame.Position,
+			targetPart.Position
+		)
+	end
+end)
+
+aimButton.Activated:Connect(function()
+	AIM_ENABLED = not AIM_ENABLED
+
+	aimButton.Text = "AIM ASSIST: "
+		.. (AIM_ENABLED and "ON" or "OFF")
+end)
+
+lockButton.Activated:Connect(function()
+	LOCK_ENABLED = not LOCK_ENABLED
+
+	lockButton.Text = "LOCK ON: "
+		.. (LOCK_ENABLED and "ON" or "OFF")
+end)
+
+accuracyButton.Activated:Connect(function()
+	ACCURACY += 5
+
+	if ACCURACY > 100 then
+		ACCURACY = 25
+	end
+
+	accuracyButton.Text = "ACCURACY: " .. ACCURACY .. "%"
+end)
+
+lockPercentButton.Activated:Connect(function()
+	LOCK_PERCENT += 5
+
+	if LOCK_PERCENT > 100 then
+		LOCK_PERCENT = 25
+	end
+
+	lockPercentButton.Text = "LOCK: " .. LOCK_PERCENT .. "%"
+end)
+
+--==================================================
+-- RANDOM FUNNY COMMAND
+--==================================================
+
+local funnyButton = makeButton(mainPanel, "RANDOM FUNNY", 40)
+
+local funnyLabel = Instance.new("TextLabel")
+funnyLabel.Size = UDim2.new(1, 0, 0, 48)
+funnyLabel.BackgroundTransparency = 1
+funnyLabel.TextColor3 = Color3.fromRGB(159, 176, 214)
+funnyLabel.Font = Enum.Font.Gotham
+funnyLabel.TextSize = 12
+funnyLabel.TextWrapped = true
+funnyLabel.Text = "Tap for a random silly move or joke."
+funnyLabel.Parent = mainPanel
+
+local jokes = {
+	"Why don't skeletons fight each other? They don't have the guts.",
+	"I told my computer I needed a break. Now it won't stop sending me beach pictures.",
+	"Why did the noob cross the road? To respawn on the other side.",
+	"I would tell you a UDP joke, but you might not get it.",
+	"Why was the Roblox player cold? They left the window open.",
+	"I'm reading a book about anti-gravity. It's impossible to put down."
+}
+
+local function funnySpin()
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+
+	if not root then
+		return
+	end
+
+	funnyLabel.Text = "Wheee! Spinning!"
+
+	local startTime = os.clock()
+
+	while os.clock() - startTime < 2.5 and root.Parent do
+		root.CFrame = root.CFrame * CFrame.Angles(0, math.rad(25), 0)
+		RunService.RenderStepped:Wait()
+	end
+end
+
+local function funnyBounce()
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+
+	if not humanoid then
+		return
+	end
+
+	funnyLabel.Text = "Bounce party!"
+
+	for _ = 1, 5 do
+		humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+		task.wait(0.6)
+	end
+end
+
+local function funnyJoke()
+	funnyLabel.Text = jokes[math.random(#jokes)]
+end
+
+local funnyBusy = false
+
+funnyButton.Activated:Connect(function()
+	if funnyBusy then
+		return
+	end
+
+	funnyBusy = true
+
+	local actions = { funnySpin, funnyBounce, funnyJoke }
+	pcall(actions[math.random(#actions)])
+
+	funnyBusy = false
+end)
+
+--==================================================
+-- STAND ON HEAD (follows the selected player)
+--==================================================
+
+local HEAD_RIDE_ENABLED = false
+
+local headRideButton = makeButton(mainPanel, "STAND ON HEAD: OFF", 40)
+
+headRideButton.Activated:Connect(function()
+	if not HEAD_RIDE_ENABLED and not selectedPlayer then
+		headRideButton.Text = "SELECT A PLAYER FIRST"
+
+		task.delay(1.5, function()
+			if headRideButton.Parent and not HEAD_RIDE_ENABLED then
+				headRideButton.Text = "STAND ON HEAD: OFF"
+			end
+		end)
+
+		return
+	end
+
+	HEAD_RIDE_ENABLED = not HEAD_RIDE_ENABLED
+
+	headRideButton.Text = "STAND ON HEAD: "
+		.. (HEAD_RIDE_ENABLED and "ON" or "OFF")
+end)
+
+RunService.RenderStepped:Connect(function()
+	if not HEAD_RIDE_ENABLED or not selectedPlayer then
+		return
+	end
+
+	local targetCharacter = selectedPlayer.Character
+	local head = targetCharacter and targetCharacter:FindFirstChild("Head")
+
+	local myCharacter = player.Character
+	local myRoot = myCharacter
+		and myCharacter:FindFirstChild("HumanoidRootPart")
+
+	if not head or not myRoot then
+		return
+	end
+
+	local rotation = myRoot.CFrame - myRoot.CFrame.Position
+
+	myRoot.CFrame = CFrame.new(
+		head.Position + Vector3.new(0, head.Size.Y / 2 + 3, 0)
+	) * rotation
+
+	myRoot.AssemblyLinearVelocity = Vector3.zero
+end)
+
+--==================================================
+-- DISCO MODE (rainbow lights, rainbow you, wobbling camera)
+--==================================================
+
+local DISCO_ENABLED = false
+local discoOriginal = nil
+local discoColors = {}
+
+local discoButton = makeButton(mainPanel, "DISCO MODE: OFF", 40)
+
+local function stopDisco()
+	if discoOriginal then
+		Lighting.Ambient = discoOriginal.ambient
+		Lighting.OutdoorAmbient = discoOriginal.outdoor
+
+		local camera = workspace.CurrentCamera
+
+		if camera then
+			camera.FieldOfView = discoOriginal.fov
+		end
+	end
+
+	for part, color in pairs(discoColors) do
+		if part.Parent then
+			part.Color = color
+		end
+	end
+
+	discoColors = {}
+	discoOriginal = nil
+end
+
+discoButton.Activated:Connect(function()
+	DISCO_ENABLED = not DISCO_ENABLED
+
+	discoButton.Text = "DISCO MODE: " .. (DISCO_ENABLED and "ON" or "OFF")
+
+	if DISCO_ENABLED then
+		local camera = workspace.CurrentCamera
+
+		discoOriginal = {
+			ambient = Lighting.Ambient,
+			outdoor = Lighting.OutdoorAmbient,
+			fov = camera and camera.FieldOfView or 70
+		}
+	else
+		stopDisco()
+	end
+end)
+
+RunService.RenderStepped:Connect(function()
+	if not DISCO_ENABLED or not discoOriginal then
+		return
+	end
+
+	local t = os.clock()
+	local lightColor = Color3.fromHSV((t * 0.6) % 1, 1, 1)
+
+	Lighting.Ambient = lightColor
+	Lighting.OutdoorAmbient = lightColor
+
+	local camera = workspace.CurrentCamera
+
+	if camera then
+		camera.FieldOfView = discoOriginal.fov + math.sin(t * 6) * 8
+	end
+
+	local character = player.Character
+
+	if character then
+		for index, part in ipairs(character:GetDescendants()) do
+			if part:IsA("BasePart") then
+				if not discoColors[part] then
+					discoColors[part] = part.Color
+				end
+
+				part.Color = Color3.fromHSV((t * 0.6 + index * 0.05) % 1, 1, 1)
+			end
+		end
+	end
+end)
+
+--==================================================
+-- TP PANEL
+--==================================================
+
+local sheriffStatus = makeButton(
+	tpPanel,
+	"SHERIFF DEATH: NOT RECORDED",
+	40
+)
+
+local sheriffTP = makeButton(
+	tpPanel,
+	"TP TO SHERIFF DEATH",
+	40
+)
+
+local tpBack = makeButton(
+	tpPanel,
+	"TP BACK TO START",
+	40
+)
+
+local savePosition = makeButton(
+	tpPanel,
+	"SAVE CURRENT POSITION",
+	40
+)
+
+local clearDeath = makeButton(
+	tpPanel,
+	"CLEAR DEATH SPOT",
+	40
+)
+
+local gunButton = makeButton(
+	tpPanel,
+	"TP TO SHERIFF GUN",
+	40
+)
+
+--==================================================
+-- ROLE DETECTION
+--==================================================
+
+local function getRole(target)
+	if not target then
+		return nil
+	end
+
+	local attributes = {
+		"Role",
+		"PlayerRole",
+		"RoleName",
+		"TeamRole"
+	}
+
+	for _, attribute in ipairs(attributes) do
+		local value = target:GetAttribute(attribute)
+
+		if typeof(value) == "string" then
+			return value
+		end
+	end
+
+	local character = target.Character
+
+	if character then
+		for _, attribute in ipairs(attributes) do
+			local value = character:GetAttribute(attribute)
+
+			if typeof(value) == "string" then
+				return value
+			end
+		end
+	end
+
+	if target.Team then
+		return target.Team.Name
+	end
+
+	return nil
+end
+
+local function isSheriff(target)
+	local role = getRole(target)
+
+	if not role then
+		return false
+	end
+
+	role = string.lower(role)
+
+	return string.find(role, "sheriff") ~= nil
+end
+
+--==================================================
+-- SHERIFF DEATH DETECTION
+--==================================================
+
+local function watchSheriff(target)
+
+	local function watchCharacter(character)
+
+		if sheriffConnections[target] then
+			sheriffConnections[target]:Disconnect()
+			sheriffConnections[target] = nil
+		end
+
+		local humanoid = character:WaitForChild("Humanoid", 5)
+		local root = character:WaitForChild("HumanoidRootPart", 5)
+
+		if not humanoid or not root then
+			return
+		end
+
+		sheriffConnections[target] =
+			humanoid.Died:Connect(function()
+
+				if isSheriff(target) then
+					sheriffDeathCFrame = root.CFrame
+
+					sheriffStatus.Text =
+						"SHERIFF DEATH: " .. target.Name
+				end
+
+			end)
+	end
+
+	if target.Character then
+		task.spawn(function()
+			watchCharacter(target.Character)
+		end)
+	end
+
+	target.CharacterAdded:Connect(watchCharacter)
+end
+
+for _, target in ipairs(Players:GetPlayers()) do
+	if target ~= player then
+		watchSheriff(target)
+	end
+end
+
+Players.PlayerAdded:Connect(function(target)
+	if target ~= player then
+		watchSheriff(target)
+	end
+end)
+
+Players.PlayerRemoving:Connect(function(target)
+
+	if sheriffConnections[target] then
+		sheriffConnections[target]:Disconnect()
+		sheriffConnections[target] = nil
+	end
+
+end)
+
+--==================================================
+-- POSITION FUNCTIONS
+--==================================================
+
+local function getMyRoot()
+	local character = player.Character
+
+	if not character then
+		return nil
+	end
+
+	return character:FindFirstChild("HumanoidRootPart")
+end
+
+local function saveCurrentPosition()
+	local root = getMyRoot()
+
+	if not root then
+		return false
+	end
+
+	savedPosition = root.CFrame
+
+	return true
+end
+
+--==================================================
+-- SAVE POSITION
+--==================================================
+
+savePosition.Activated:Connect(function()
+
+	if saveCurrentPosition() then
+
+		savePosition.Text = "POSITION SAVED"
+
+		task.delay(1.5, function()
+			if savePosition.Parent then
+				savePosition.Text = "SAVE CURRENT POSITION"
+			end
+		end)
+
+	end
+
+end)
+
+--==================================================
+-- TP TO SHERIFF DEATH
+--==================================================
+
+sheriffTP.Activated:Connect(function()
+
+	if not sheriffDeathCFrame then
+		sheriffStatus.Text =
+			"SHERIFF DEATH: NOT RECORDED"
+
+		return
+	end
+
+	local root = getMyRoot()
+
+	if not root then
+		return
+	end
+
+	-- Automatically save current position
+	saveCurrentPosition()
+
+	root.CFrame =
+		sheriffDeathCFrame + Vector3.new(0, 3, 0)
+
+end)
+
+--==================================================
+-- TP BACK
+--==================================================
+
+tpBack.Activated:Connect(function()
+
+	if not savedPosition then
+		return
+	end
+
+	local root = getMyRoot()
+
+	if root then
+		root.CFrame = savedPosition
+	end
+
+end)
+
+--==================================================
+-- CLEAR SHERIFF DEATH
+--==================================================
+
+clearDeath.Activated:Connect(function()
+
+	sheriffDeathCFrame = nil
+
+	sheriffStatus.Text =
+		"SHERIFF DEATH: NOT RECORDED"
+
+end)
+
+--==================================================
+-- TP TO SHERIFF GUN (press again to go back)
+--==================================================
+
+local gunReturn = nil
+
+local function findGun()
+	local drop = workspace:FindFirstChild("GunDrop", true)
+
+	if drop then
+		return drop
+	end
+
+	for _, item in ipairs(workspace:GetDescendants()) do
+		if item:IsA("Tool")
+			and item.Parent == workspace
+			and string.find(string.lower(item.Name), "gun") then
+
+			return item
+		end
+	end
+
+	return nil
+end
+
+local function getGunCFrame(gun)
+	if gun:IsA("BasePart") then
+		return gun.CFrame
+	end
+
+	if gun:IsA("Model") then
+		return gun:GetPivot()
+	end
+
+	if gun:IsA("Tool") then
+		local handle = gun:FindFirstChild("Handle")
+
+		if handle then
+			return handle.CFrame
+		end
+	end
+
+	return nil
+end
+
+local function resetGunButton()
+	gunReturn = nil
+	gunButton.Text = "TP TO SHERIFF GUN"
+end
+
+gunButton.Activated:Connect(function()
+
+	local root = getMyRoot()
+
+	if not root then
+		return
+	end
+
+	-- Second press: go back to where you started
+	if gunReturn then
+		root.CFrame = gunReturn
+		resetGunButton()
+		return
+	end
+
+	local gun = findGun()
+	local gunCFrame = gun and getGunCFrame(gun)
+
+	if not gunCFrame then
+		gunButton.Text = "NO GUN FOUND"
+
+		task.delay(1.5, function()
+			if gunButton.Parent and not gunReturn then
+				gunButton.Text = "TP TO SHERIFF GUN"
+			end
+		end)
+
+		return
+	end
+
+	gunReturn = root.CFrame
+	savedPosition = root.CFrame
+
+	root.CFrame = gunCFrame + Vector3.new(0, 3, 0)
+
+	gunButton.Text = "BACK TO START"
+
+end)
+
+player.CharacterAdded:Connect(resetGunButton)
+
+--==================================================
+-- FLY PANEL
+--==================================================
+
+local flyButton = makeButton(
+	flyPanel,
+	"FLY: OFF",
+	40
+)
+
+local upButton = makeButton(
+	flyPanel,
+	"▲ HOLD UP",
+	40
+)
+
+local downButton = makeButton(
+	flyPanel,
+	"▼ HOLD DOWN",
+	40
+)
+
+--==================================================
+-- FLY FUNCTIONS
+--==================================================
+
+local function getHumanoid()
+	local character = player.Character
+
+	if not character then
+		return nil
+	end
+
+	return character:FindFirstChildOfClass("Humanoid")
+end
+
+local function getRoot()
+	local character = player.Character
+
+	if not character then
+		return nil
+	end
+
+	return character:FindFirstChild("HumanoidRootPart")
+end
+
+flyButton.Activated:Connect(function()
+
+	FLY_ENABLED = not FLY_ENABLED
+
+	flyButton.Text =
+		"FLY: " .. (FLY_ENABLED and "ON" or "OFF")
+
+	local humanoid = getHumanoid()
+
+	if humanoid then
+		humanoid.PlatformStand = FLY_ENABLED
+	end
+
+	if not FLY_ENABLED then
+
+		verticalDirection = 0
+
+		local root = getRoot()
+
+		if root then
+			root.AssemblyLinearVelocity = Vector3.zero
+		end
+
+	end
+
+end)
+
+RunService.RenderStepped:Connect(function()
+
+	if not FLY_ENABLED then
+		return
+	end
+
+	local humanoid = getHumanoid()
+	local root = getRoot()
+	local camera = workspace.CurrentCamera
+
+	if not humanoid or not root or not camera then
+		return
+	end
+
+	humanoid.PlatformStand = true
+
+	local movement = humanoid.MoveDirection
+
+	local velocity =
+		movement * FLY_SPEED
+
+	velocity += Vector3.new(
+		0,
+		verticalDirection * FLY_SPEED,
+		0
+	)
+
+	root.AssemblyLinearVelocity = velocity
+
+end)
+
+--==================================================
+-- UP / DOWN MOBILE CONTROLS
+--==================================================
+
+local function validPress(input)
+
+	return input.UserInputType ==
+		Enum.UserInputType.Touch
+
+		or input.UserInputType ==
+		Enum.UserInputType.MouseButton1
+
+end
+
+upButton.InputBegan:Connect(function(input)
+
+	if validPress(input) then
+		verticalDirection = 1
+	end
+
+end)
+
+upButton.InputEnded:Connect(function(input)
+
+	if validPress(input)
+		and verticalDirection == 1 then
+
+		verticalDirection = 0
+	end
+
+end)
+
+downButton.InputBegan:Connect(function(input)
+
+	if validPress(input) then
+		verticalDirection = -1
+	end
+
+end)
+
+downButton.InputEnded:Connect(function(input)
+
+	if validPress(input)
+		and verticalDirection == -1 then
+
+		verticalDirection = 0
+	end
+
+end)
+
+--==================================================
+-- RESPAWN SUPPORT
+--==================================================
+
+player.CharacterAdded:Connect(function(character)
+
+	task.wait(0.5)
+
+	local humanoid =
+		character:FindFirstChildOfClass("Humanoid")
+
+	if humanoid and FLY_ENABLED then
+		humanoid.PlatformStand = true
+	end
+
+end)
+
+--==================================================
+-- COLLAPSE
+--==================================================
+
+title.Activated:Connect(function()
+
+	collapsed = not collapsed
+
+	if collapsed then
+
+		window.Size =
+			UDim2.fromOffset(310, 42)
+
+		sidebar.Visible = false
+
+		for _, panel in pairs(panels) do
+			panel.Visible = false
+		end
+
+		title.Text = "ETHAN +"
+
+	else
+
+		window.Size =
+			UDim2.fromOffset(310, 420)
+
+		sidebar.Visible = true
+
+		showTab(currentTab)
+
+		title.Text = "ETHAN −"
+
+	end
+
+end)
+
+--==================================================
+-- DRAGGING / MOBILE
+--==================================================
+
+local dragging = false
+local dragStart = nil
+local startPosition = nil
+
+title.InputBegan:Connect(function(input)
+
+	if input.UserInputType ==
+		Enum.UserInputType.MouseButton1
+
+		or input.UserInputType ==
+		Enum.UserInputType.Touch then
+
+		dragging = true
+		dragStart = input.Position
+		startPosition = window.Position
+
+		input.Changed:Connect(function()
+
+			if input.UserInputState ==
+				Enum.UserInputState.End then
+
+				dragging = false
+
+			end
+
+		end)
+
+	end
+
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+
+	if not dragging then
+		return
+	end
+
+	if input.UserInputType ==
+		Enum.UserInputType.MouseMovement
+
+		or input.UserInputType ==
+		Enum.UserInputType.Touch then
+
+		local delta =
+			input.Position - dragStart
+
+		window.Position = UDim2.new(
+			startPosition.X.Scale,
+			startPosition.X.Offset + delta.X,
+			startPosition.Y.Scale,
+			startPosition.Y.Offset + delta.Y
+		)
+
+	end
+
+end)
+
+if BACKGROUND_IMAGE ~= "" then
+	title.BackgroundTransparency = 0.25
+	sidebar.BackgroundTransparency = 0.4
+end
+
+--==================================================
+-- KEY SYSTEM
+--==================================================
+
+-- Same checksum as the Key Vault page.
+local function hashString(text)
+	local h = 5381
+
+	for i = 1, #text do
+		h = (h * 33 + string.byte(text, i)) % 4294967296
+	end
+
+	return h
+end
+
+local function checkSegment(prefix)
+	local n = hashString(SALT .. string.lower(prefix)) % 1048576
+	local out = ""
+
+	for _ = 1, 4 do
+		local index = n % 32
+		out = string.sub(ALPHABET, index + 1, index + 1) .. out
+		n = math.floor(n / 32)
+	end
+
+	return out
+end
+
+-- Key format: word-word-word-XXXX-XXXX
+local function isValidKey(input)
+	local trimmed = string.match(input, "^%s*(.-)%s*$")
+
+	local a, b, c, seg, check = string.match(
+		trimmed,
+		"^(%a+)%-(%a+)%-(%a+)%-(%w%w%w%w)%-(%w%w%w%w)$"
+	)
+
+	if not a then
+		return false
+	end
+
+	local prefix = a .. "-" .. b .. "-" .. c .. "-" .. seg
+
+	return string.upper(check) == checkSegment(prefix)
+end
+
+local keyFrame = Instance.new("Frame")
+keyFrame.Name = "KeyFrame"
+keyFrame.Size = UDim2.fromOffset(300, 330)
+keyFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+keyFrame.Position = UDim2.fromScale(0.5, 0.5)
+keyFrame.BackgroundColor3 = Color3.fromRGB(22, 22, 27)
+keyFrame.BorderSizePixel = 0
+keyFrame.Parent = gui
+
+local keyBg = nil
+
+if BACKGROUND_IMAGE ~= "" then
+	keyBg = makeBackground(gui)
+	keyBg.Size = keyFrame.Size
+	keyBg.AnchorPoint = keyFrame.AnchorPoint
+	keyBg.Position = keyFrame.Position
+	keyBg.ZIndex = 1
+
+	local keyBgScale = Instance.new("UIScale")
+	keyBgScale.Scale = UI_SCALE
+	keyBgScale.Parent = keyBg
+	keyFrame.ZIndex = 2
+	keyFrame.BackgroundTransparency = 1
+end
+
+local keyScale = Instance.new("UIScale")
+keyScale.Scale = UI_SCALE
+keyScale.Parent = keyFrame
+
+local keyCorner = Instance.new("UICorner")
+keyCorner.CornerRadius = UDim.new(0, 10)
+keyCorner.Parent = keyFrame
+
+local keyStroke = Instance.new("UIStroke")
+keyStroke.Color = Color3.fromRGB(65, 65, 75)
+keyStroke.Thickness = 1
+keyStroke.Parent = keyFrame
+
+local keyPadding = Instance.new("UIPadding")
+keyPadding.PaddingTop = UDim.new(0, 14)
+keyPadding.PaddingBottom = UDim.new(0, 14)
+keyPadding.PaddingLeft = UDim.new(0, 14)
+keyPadding.PaddingRight = UDim.new(0, 14)
+keyPadding.Parent = keyFrame
+
+local keyLayout = Instance.new("UIListLayout")
+keyLayout.Padding = UDim.new(0, 8)
+keyLayout.SortOrder = Enum.SortOrder.LayoutOrder
+keyLayout.Parent = keyFrame
+
+local keyTitle = Instance.new("TextLabel")
+keyTitle.LayoutOrder = 1
+keyTitle.Size = UDim2.new(1, 0, 0, 28)
+keyTitle.BackgroundTransparency = 1
+keyTitle.TextColor3 = Color3.new(1, 1, 1)
+keyTitle.Font = Enum.Font.GothamBold
+keyTitle.TextSize = 18
+keyTitle.Text = "ETHAN KEY SYSTEM"
+keyTitle.Parent = keyFrame
+
+local keyBox = Instance.new("TextBox")
+keyBox.LayoutOrder = 2
+keyBox.Size = UDim2.new(1, 0, 0, 42)
+keyBox.BackgroundColor3 = Color3.fromRGB(37, 37, 45)
+keyBox.TextColor3 = Color3.new(1, 1, 1)
+keyBox.PlaceholderText = "Enter key"
+keyBox.PlaceholderColor3 = Color3.fromRGB(140, 140, 155)
+keyBox.Text = ""
+keyBox.ClearTextOnFocus = false
+keyBox.Font = Enum.Font.Code
+keyBox.TextSize = 14
+keyBox.BorderSizePixel = 0
+keyBox.Parent = keyFrame
+
+local keyBoxCorner = Instance.new("UICorner")
+keyBoxCorner.CornerRadius = UDim.new(0, 7)
+keyBoxCorner.Parent = keyBox
+
+local getKeyButton = makeButton(keyFrame, "Get Key 🔑", 40)
+getKeyButton.LayoutOrder = 3
+
+local unlockButton = makeButton(keyFrame, "UNLOCK", 40)
+unlockButton.LayoutOrder = 4
+unlockButton.BackgroundColor3 = Color3.fromRGB(255, 200, 87)
+unlockButton.TextColor3 = Color3.fromRGB(20, 33, 61)
+
+local keyStatus = Instance.new("TextLabel")
+keyStatus.LayoutOrder = 5
+keyStatus.Size = UDim2.new(1, 0, 0, 20)
+keyStatus.BackgroundTransparency = 1
+keyStatus.TextColor3 = Color3.fromRGB(159, 176, 214)
+keyStatus.Font = Enum.Font.Gotham
+keyStatus.TextSize = 12
+keyStatus.Text = "Tap Get Key, finish the steps, then paste your key above."
+keyStatus.TextWrapped = true
+keyStatus.Parent = keyFrame
+
+local linkBox = Instance.new("TextBox")
+linkBox.LayoutOrder = 6
+linkBox.Size = UDim2.new(1, 0, 0, 34)
+linkBox.BackgroundColor3 = Color3.fromRGB(30, 30, 37)
+linkBox.TextColor3 = Color3.fromRGB(255, 200, 87)
+linkBox.Text = KEY_URL
+linkBox.ClearTextOnFocus = false
+linkBox.TextEditable = false
+linkBox.Font = Enum.Font.Code
+linkBox.TextSize = 11
+linkBox.TextWrapped = true
+linkBox.BorderSizePixel = 0
+linkBox.Visible = false
+linkBox.Parent = keyFrame
+
+local linkCorner = Instance.new("UICorner")
+linkCorner.CornerRadius = UDim.new(0, 7)
+linkCorner.Parent = linkBox
+
+local function setKeyStatus(text, good)
+	keyStatus.Text = text
+	keyStatus.TextColor3 = good
+		and Color3.fromRGB(95, 208, 160)
+		or Color3.fromRGB(255, 110, 110)
+end
+
+getKeyButton.Activated:Connect(function()
+	-- Try to open the Key Vault page. If Roblox blocks that, try copying
+	-- the link. If both are blocked, show the link so it can be copied.
+	local opened = pcall(function()
+		GuiService:OpenBrowserWindow(KEY_URL)
+	end)
+
+	local copied = false
+
+	if not opened then
+		copied = pcall(function()
+			setclipboard(KEY_URL)
+		end)
+	end
+
+	keyStatus.TextColor3 = Color3.fromRGB(159, 176, 214)
+
+	if opened then
+		keyStatus.Text = "Opening the key page. Finish the steps, then paste your key."
+	elseif copied then
+		keyStatus.Text = "Link copied. Paste it in your browser, then paste your key here."
+	else
+		linkBox.Visible = true
+		keyStatus.Text = "Roblox can't open links. Copy the link below and open it in your browser."
+	end
+end)
+
+local function tryUnlock()
+	if keyBox.Text == "" then
+		setKeyStatus("Enter your key first.", false)
+		return
+	end
+
+	if isValidKey(keyBox.Text) then
+		setKeyStatus("Key accepted.", true)
+		task.wait(0.4)
+		keyFrame:Destroy()
+
+		if keyBg then
+			keyBg:Destroy()
+		end
+
+		window.Visible = true
+	else
+		setKeyStatus("Invalid key. Check it and try again.", false)
+	end
+end
+
+unlockButton.Activated:Connect(tryUnlock)
+
+keyBox.FocusLost:Connect(function(enterPressed)
+	if enterPressed then
+		tryUnlock()
+	end
+end)
+
+print("ETHAN UI loaded successfully.")
